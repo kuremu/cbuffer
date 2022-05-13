@@ -1,0 +1,58 @@
+#!/bin/bash
+
+usage() { >&2 echo "Usage: $(basename $0) [-hf] [-b buffer_seconds] [-s pulse_sink] filename"; exit 1; }
+abort() { >&2 echo "Error: $1"; exit 1; }
+flag() { echo "$spec" | grep -q "$1"; }
+
+CBUFFER_PATH=${CBUFFER_PATH:-cbuffer}
+
+buffer=
+src=
+while getopts "fhb:s:" o; do
+    case "${o}" in
+        f) force=1 ;;
+        b) buffer="${OPTARG}" ;;
+        s) src="${OPTARG}" ;;
+        *) usage ;;
+    esac
+done
+shift $((OPTIND-1))
+filename=$1
+
+[ -z "$filename" ] && usage
+if [ "$filename" != "-" ]; then
+    echo $filename | grep -q '\.' || abort "must include extension"
+    sox --help | grep "AUDIO FILE FORMATS" | tr " " "\n" | tail -n +4 \
+        | grep -qE "^${filename##*.}$" || abort "${filename##*.} not supported"
+    [ ! $force ] && [ -f "$filename" ] && abort "file already exists"
+fi
+
+# defaults
+[ -z "$src" ] && src="$(pactl get-default-sink).monitor"
+[ -z "$buffer" ] && buffer=5
+
+# get source spec
+spec=$(pactl list sources | grep -A 3 "Name: $src" | tail -n +4 | cut -d \  -f3-)
+[ -z "$spec" ] && abort "source not found"
+
+# source details
+rate=$(echo $spec | sed "s/.* \(.*\)Hz/\1/")
+bits=$(echo $spec | awk '{print $1}' | sed "s/[^[:digit:]]//g")
+channels=$(echo $spec | sed "s/.*\([[:digit:]]\)ch.*/\1/")
+flag le && endian="-L" || endian="-B"
+flag u && signed="unsigned-integer" || { flag f && signed="floating-point" || signed="signed-integer"; }
+[[ -z $endian || -z $signed || -z $rate || -z $bits || -z $channels ]] && abort "could not determine source format"
+
+raw="-t raw ${endian} -e${signed} -r${rate} -b${bits} -c${channels}"
+bitrate=$(( $rate * $bits * $channels ))
+
+[ "$filename" != "-" ] && output=$filename || output="$raw -"
+
+sox -q -t pulseaudio $src $raw - | \
+    $CBUFFER_PATH -b $bitrate $buffer | \
+    sox $raw - $output
+
+# remove if too short
+if [[ -f "$filename" && "$filename" != "-" ]]; then
+    soxi "$output" | grep -q Duration || { >&2 echo "Aborted"; rm -f $output; exit 1; }
+fi
