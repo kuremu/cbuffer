@@ -11,7 +11,8 @@
         -V, --version           Print version information
 
 **Dependencies**  
-    rust/cargo 1.60.0
+
+    rust/cargo 1.60.0  
     pulseaudio (optional)
 
 ## About
