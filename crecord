@@ -54,5 +54,5 @@ sox -q -t pulseaudio $src $raw - | \
 
 # remove if too short
 if [[ -f "$filename" && "$filename" != "-" ]]; then
-    soxi "$output" | grep -q Duration || { >&2 echo "Aborted"; rm -f $output; exit 1; }
+    soxi "$output" 2> /dev/null | grep -q Duration || { >&2 echo "Aborted"; rm -f $output; exit 1; }
 fi
